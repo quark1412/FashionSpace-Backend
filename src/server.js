@@ -1,3 +1,5 @@
+import "./utils/utilPolyfill.js";
+
 import express from "express";
 import mongoose from "mongoose";
 import cors from "cors";
@@ -35,7 +37,10 @@ const file = fs.readFileSync("./swagger.yaml", "utf8");
 const swaggerDocument = YAML.parse(file);
 const app = express();
 const redisClient = new Redis(process.env.REDIS_URL);
-const origin = process.env.NODE_ENV === "production" ? "https://fashion-space.vercel.app" : "http://localhost:3000";
+const origin =
+  process.env.NODE_ENV === "production"
+    ? "https://fashion-space.vercel.app"
+    : "http://localhost:3000";
 
 app.use(express.json());
 app.use(bodyParser.json());
