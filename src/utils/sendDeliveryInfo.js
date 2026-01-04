@@ -1,4 +1,5 @@
 import deliveryInfoComponent from "../config/deliveryInfoComponent.js";
+import { Resend } from "resend";
 
 const sendDeliveryInfo = async (email, order) => {
   try {
