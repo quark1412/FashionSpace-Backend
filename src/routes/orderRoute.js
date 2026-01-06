@@ -24,13 +24,13 @@ router.post("/checkStatusTransaction", orderController.checkStatusTransaction);
 router.put(
   "/deliveryInfo/:id",
   authMiddleware.verifyToken,
-  authMiddleware.checkPermission(["Employee", "Customer"]),
+  authMiddleware.checkPermission(["Admin", "Employee", "Customer"]),
   orderController.updateDeliveryInfoById
 );
 router.put(
   "/paymentStatus/:id",
   authMiddleware.verifyToken,
-  authMiddleware.checkPermission(["Employee"]),
+  authMiddleware.checkPermission(["Admin", "Employee"]),
   orderController.updatePaymentStatusById
 );
 router.post("/sendDeliveryInfo", orderController.sendMailDeliveryInfo);
@@ -40,6 +40,37 @@ router.post("/callbackZaloPay", orderController.callbackZaloPay);
 router.post(
   "/checkStatusZaloPay",
   orderController.checkStatusTransactionZaloPay
+);
+
+// Routes mới sử dụng State Pattern
+router.put(
+  "/next/:id",
+  authMiddleware.verifyToken,
+  authMiddleware.checkPermission(["Admin", "Employee"]),
+  orderController.nextOrderStatus
+);
+router.put(
+  "/cancel/:id",
+  authMiddleware.verifyToken,
+  authMiddleware.checkPermission(["Admin", "Employee", "Customer"]),
+  orderController.cancelOrder
+);
+router.put(
+  "/requestReturn/:id",
+  authMiddleware.verifyToken,
+  authMiddleware.checkPermission(["Admin", "Employee", "Customer"]),
+  orderController.requestReturnOrder
+);
+router.put(
+  "/confirmReturn/:id",
+  authMiddleware.verifyToken,
+  authMiddleware.checkPermission(["Admin", "Employee"]),
+  orderController.confirmReturnOrder
+);
+router.get(
+  "/statusHistory/:id",
+  authMiddleware.verifyToken,
+  orderController.getOrderStatusHistory
 );
 
 export default router;
