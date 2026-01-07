@@ -568,9 +568,9 @@ export class OrderStatusContextFactory {
     return context;
   }
 
-  static createNew(orderId, redisClient = null) {
+  static async createNew(orderId, redisClient = null) {
     const context = new OrderStatusContext(orderId, redisClient);
-    context.setState(new PendingState(context));
+    await context.setState(new PendingState(context));
     return context;
   }
 }
