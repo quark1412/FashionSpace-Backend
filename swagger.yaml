@@ -4040,6 +4040,419 @@ paths:
                   summary: Example response
                   value:
                     error: "Not found"
+  /api/v1/order/next/{id}:
+    put:
+      tags:
+        - Order
+      summary: Move order to next status using State Pattern
+      description: Automatically transitions the order to the next valid state in the order lifecycle
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            example: "67f559e3a07743453ce315a6"
+          description: The ID of the order
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                deliveryAddress:
+                  type: string
+                  description: Delivery address or note for this status transition
+            examples:
+              example1:
+                summary: Example request
+                value:
+                  deliveryAddress: "Đang xử lý tại kho"
+      responses:
+        "200":
+          description: Order status updated successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Đã chuyển sang trạng thái: Đã nhận đơn"
+                  data:
+                    $ref: "#/components/schemas/Order"
+        "400":
+          description: Bad Request - Cannot transition to next state
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: "Đơn hàng đã hoàn thành, không thể chuyển sang trạng thái tiếp theo"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/TokenError"
+                  - $ref: "#/components/schemas/TokenExpiredError"
+        "403":
+          description: Forbidden - Only Admin or Employee can transition order status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PermissionError"
+        "404":
+          description: Order not found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: "Đơn hàng không tồn tại"
+  /api/v1/order/cancel/{id}:
+    put:
+      tags:
+        - Order
+      summary: Cancel an order using State Pattern
+      description: Cancel an order by customer or employee with proper state validation
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            example: "67f559e3a07743453ce315a6"
+          description: The ID of the order to cancel
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                cancelBy:
+                  type: string
+                  enum: ["customer", "employee"]
+                  description: Who is canceling the order
+                deliveryAddress:
+                  type: string
+                  description: Reason for cancellation
+              required:
+                - cancelBy
+            examples:
+              example1:
+                summary: Cancel by customer
+                value:
+                  cancelBy: "customer"
+                  deliveryAddress: "Đặt nhầm sản phẩm"
+              example2:
+                summary: Cancel by employee
+                value:
+                  cancelBy: "employee"
+                  deliveryAddress: "Sản phẩm hết hàng"
+      responses:
+        "200":
+          description: Order cancelled successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Đã hủy đơn hàng"
+                  data:
+                    $ref: "#/components/schemas/Order"
+        "400":
+          description: Bad Request - Cannot cancel order in current state
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: "Không thể hủy đơn hàng sau khi đã được nhận"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/TokenError"
+                  - $ref: "#/components/schemas/TokenExpiredError"
+        "403":
+          description: Forbidden - No permission to cancel this order
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PermissionError"
+        "404":
+          description: Order not found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: "Đơn hàng không tồn tại"
+  /api/v1/order/requestReturn/{id}:
+    put:
+      tags:
+        - Order
+      summary: Request return for an order using State Pattern
+      description: Customer or employee can request to return an order that is in delivery or shipped
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            example: "67f559e3a07743453ce315a6"
+          description: The ID of the order to request return
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                deliveryAddress:
+                  type: string
+                  description: Reason for return
+            examples:
+              example1:
+                summary: Example request
+                value:
+                  deliveryAddress: "Sản phẩm không đúng mô tả"
+      responses:
+        "200":
+          description: Return request submitted successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Đã gửi yêu cầu trả hàng"
+                  data:
+                    $ref: "#/components/schemas/Order"
+        "400":
+          description: Bad Request - Cannot request return in current state
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: "Chỉ có thể yêu cầu trả hàng khi đơn hàng đang giao hoặc đã giao"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/TokenError"
+                  - $ref: "#/components/schemas/TokenExpiredError"
+        "403":
+          description: Forbidden - No permission to request return for this order
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PermissionError"
+        "404":
+          description: Order not found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: "Đơn hàng không tồn tại"
+  /api/v1/order/confirmReturn/{id}:
+    put:
+      tags:
+        - Order
+      summary: Confirm return for an order using State Pattern
+      description: Admin or Employee confirms that the returned order has been received
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            example: "67f559e3a07743453ce315a6"
+          description: The ID of the order to confirm return
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                deliveryAddress:
+                  type: string
+                  description: Notes about the returned items
+            examples:
+              example1:
+                summary: Example request
+                value:
+                  deliveryAddress: "Đã nhận hàng trả về, tình trạng tốt"
+      responses:
+        "200":
+          description: Return confirmed successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Đã xác nhận trả hàng"
+                  data:
+                    $ref: "#/components/schemas/Order"
+        "400":
+          description: Bad Request - Order is not in return state
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: "Đơn hàng chưa ở trạng thái yêu cầu trả hàng"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/TokenError"
+                  - $ref: "#/components/schemas/TokenExpiredError"
+        "403":
+          description: Forbidden - Only Admin or Employee can confirm returns
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PermissionError"
+        "404":
+          description: Order not found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: "Đơn hàng không tồn tại"
+  /api/v1/order/statusHistory/{id}:
+    get:
+      tags:
+        - Order
+      summary: Get order status history
+      description: Retrieve the complete history of status changes for an order
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            example: "67f559e3a07743453ce315a6"
+          description: The ID of the order
+      responses:
+        "200":
+          description: Order status history retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  currentStatus:
+                    type: string
+                    example: "Đang giao"
+                    description: Current status of the order
+                  history:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        status:
+                          type: string
+                          example: "Đang chờ"
+                        deliveryAddress:
+                          type: string
+                          example: "123 Main St, City, Country"
+                        deliveryDate:
+                          type: string
+                          format: date-time
+                          example: "2023-01-05T12:00:00Z"
+              examples:
+                example1:
+                  summary: Example response
+                  value:
+                    currentStatus: "Đang giao"
+                    history:
+                      - status: "Đang chờ"
+                        deliveryAddress: "N/A"
+                        deliveryDate: "2023-01-01T12:00:00Z"
+                      - status: "Đã nhận đơn"
+                        deliveryAddress: "Đã xác nhận đơn hàng"
+                        deliveryDate: "2023-01-02T12:00:00Z"
+                      - status: "Đang xử lý"
+                        deliveryAddress: "Đang đóng gói"
+                        deliveryDate: "2023-01-03T12:00:00Z"
+                      - status: "Đang giao"
+                        deliveryAddress: "123 Main St, City, Country"
+                        deliveryDate: "2023-01-05T12:00:00Z"
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: "Đơn hàng không tồn tại"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/TokenError"
+                  - $ref: "#/components/schemas/TokenExpiredError"
+        "404":
+          description: Order not found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: "Đơn hàng không tồn tại"
   /api/v1/order/checkoutWithMoMo:
     post:
       tags:

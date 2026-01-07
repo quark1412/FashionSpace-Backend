@@ -19,6 +19,7 @@ import {
   VnPayPaymentStrategy,
   ZaloPayPaymentStrategy,
 } from "../services/paymentService.js";
+import { OrderStatusContextFactory } from "../services/statusService.js";
 
 const getAllOrders = asyncHandler(async (req, res, next) => {
   const query = {};
@@ -252,53 +253,38 @@ const updateDeliveryInfoById = asyncHandler(async (req, res, next) => {
     throw new Error(messages.MSG1);
   }
 
-  order.deliveryInfo.push({
-    status,
-    deliveryAddress,
-  });
-
-  if (status === orderStatus.ACCEPTED) {
-    for (let orderItem of order.orderItems) {
-      const cacheKey = `productVariant:${orderItem.productVariantId}`;
-      const productVariant = await ProductVariant.findById(
-        orderItem.productVariantId
-      );
-      productVariant.stock -= orderItem.quantity;
-      await req.redisClient.hincrby(cacheKey, "stock", -orderItem.quantity);
-      await productVariant.save();
+  try {
+    // Cập nhật expectedDeliveryDate trước nếu có
+    if (expectedDeliveryDate) {
+      order.expectedDeliveryDate = expectedDeliveryDate;
+      await order.save();
     }
-  }
 
-  if (status === orderStatus.RETURNED) {
-    for (let orderItem of order.orderItems) {
-      const cacheKey = `productVariant:${orderItem.productVariantId}`;
-      const productVariant = await ProductVariant.findById(
-        orderItem.productVariantId
-      );
-      productVariant.stock += orderItem.quantity;
-      await req.redisClient.hincrby(cacheKey, "stock", orderItem.quantity);
-      await productVariant.save();
+    // Sử dụng State Pattern để quản lý trạng thái
+    const statusContext = await OrderStatusContextFactory.create(
+      orderId,
+      req.redisClient
+    );
+
+    // Kiểm tra xem có thể chuyển sang trạng thái mới không
+    if (!statusContext.canTransitionTo(status)) {
+      const currentStatus = statusContext.getCurrentStatus();
+      logger.warn(`Không thể chuyển từ trạng thái "${currentStatus}" sang "${status}"`);
+      return res.status(400).json({
+        error: `Không thể chuyển từ trạng thái "${currentStatus}" sang "${status}"`,
+      });
     }
-  }
 
-  if (status === orderStatus.SHIPPED) {
-    for (let orderItem of order.orderItems) {
-      const cacheKey = `product:${orderItem.productId}`;
-      const product = await Product.findById(orderItem.productId);
-      product.soldQuantity += orderItem.quantity;
-      await req.redisClient.hincrby(
-        cacheKey,
-        "soldQuantity",
-        orderItem.quantity
-      );
-      await product.save();
-    }
-    addOrderToReport(order.finalPrice);
-  }
+    // Thực hiện chuyển trạng thái
+    await statusContext.transitionTo(status, deliveryAddress);
 
-  logger.info(messages.MSG44);
-  await order.save();
-  res.status(200).json({ message: messages.MSG44, data: order });
+    logger.info(messages.MSG44);
+    const updatedOrder = await Order.findById(orderId);
+    res.status(200).json({ message: messages.MSG44, data: updatedOrder });
+  } catch (error) {
+    logger.error("Lỗi khi cập nhật trạng thái đơn hàng:", error);
+    res.status(400).json({ error: error.message });
+  }
 });
 
 const updatePaymentStatusById = asyncHandler(async (req, res, next) => {
@@ -627,6 +613,156 @@ const checkStatusTransactionZaloPay = asyncHandler(async (req, res, next) => {
   }
 });
 
+// Hàm mới: Chuyển đơn hàng sang trạng thái tiếp theo (sử dụng State Pattern)
+const nextOrderStatus = asyncHandler(async (req, res, next) => {
+  const orderId = req.params.id;
+  const { deliveryAddress } = req.body;
+
+  try {
+    const statusContext = await OrderStatusContextFactory.create(
+      orderId,
+      req.redisClient
+    );
+
+    const newStatus = await statusContext.next(deliveryAddress);
+
+    logger.info(`Đơn hàng ${orderId} đã chuyển sang trạng thái: ${newStatus}`);
+    const updatedOrder = await Order.findById(orderId);
+    res.status(200).json({
+      message: `Đã chuyển sang trạng thái: ${newStatus}`,
+      data: updatedOrder,
+    });
+  } catch (error) {
+    logger.error("Lỗi khi chuyển trạng thái tiếp theo:", error);
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// Hàm mới: Hủy đơn hàng (sử dụng State Pattern)
+const cancelOrder = asyncHandler(async (req, res, next) => {
+  const orderId = req.params.id;
+  const { cancelBy, deliveryAddress } = req.body;
+
+  // Kiểm tra quyền: Customer chỉ có thể hủy đơn hàng của mình
+  const order = await Order.findById(orderId);
+  if (!order) {
+    logger.warn("Đơn hàng không tồn tại");
+    return res.status(404).json({ error: "Đơn hàng không tồn tại" });
+  }
+
+  // Kiểm tra quyền hủy
+  const userRole = req.user.role;
+  if (cancelBy === "employee" && !["Admin", "Employee"].includes(userRole)) {
+    return res.status(403).json({ error: "Không có quyền hủy đơn hàng" });
+  }
+
+  if (cancelBy === "customer" && order.userId.toString() !== req.user.id) {
+    return res.status(403).json({ error: "Không có quyền hủy đơn hàng này" });
+  }
+
+  try {
+    const statusContext = await OrderStatusContextFactory.create(
+      orderId,
+      req.redisClient
+    );
+
+    const newStatus = await statusContext.cancel(cancelBy, deliveryAddress);
+
+    logger.info(`Đơn hàng ${orderId} đã bị hủy bởi ${cancelBy}`);
+    const updatedOrder = await Order.findById(orderId);
+    res.status(200).json({
+      message: `Đã hủy đơn hàng`,
+      data: updatedOrder,
+    });
+  } catch (error) {
+    logger.error("Lỗi khi hủy đơn hàng:", error);
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// Hàm mới: Yêu cầu trả hàng (sử dụng State Pattern)
+const requestReturnOrder = asyncHandler(async (req, res, next) => {
+  const orderId = req.params.id;
+  const { deliveryAddress } = req.body;
+
+  // Kiểm tra quyền: Customer chỉ có thể yêu cầu trả hàng đơn hàng của mình
+  const order = await Order.findById(orderId);
+  if (!order) {
+    logger.warn("Đơn hàng không tồn tại");
+    return res.status(404).json({ error: "Đơn hàng không tồn tại" });
+  }
+
+  if (order.userId.toString() !== req.user.id && !["Admin", "Employee"].includes(req.user.role)) {
+    return res.status(403).json({ error: "Không có quyền yêu cầu trả hàng đơn hàng này" });
+  }
+
+  try {
+    const statusContext = await OrderStatusContextFactory.create(
+      orderId,
+      req.redisClient
+    );
+
+    const newStatus = await statusContext.requestReturn(deliveryAddress);
+
+    logger.info(`Đơn hàng ${orderId} đã được yêu cầu trả hàng`);
+    const updatedOrder = await Order.findById(orderId);
+    res.status(200).json({
+      message: `Đã gửi yêu cầu trả hàng`,
+      data: updatedOrder,
+    });
+  } catch (error) {
+    logger.error("Lỗi khi yêu cầu trả hàng:", error);
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// Hàm mới: Xác nhận trả hàng (sử dụng State Pattern)
+const confirmReturnOrder = asyncHandler(async (req, res, next) => {
+  const orderId = req.params.id;
+  const { deliveryAddress } = req.body;
+
+  try {
+    const statusContext = await OrderStatusContextFactory.create(
+      orderId,
+      req.redisClient
+    );
+
+    const newStatus = await statusContext.confirmReturn(deliveryAddress);
+
+    logger.info(`Đơn hàng ${orderId} đã được xác nhận trả hàng`);
+    const updatedOrder = await Order.findById(orderId);
+    res.status(200).json({
+      message: `Đã xác nhận trả hàng`,
+      data: updatedOrder,
+    });
+  } catch (error) {
+    logger.error("Lỗi khi xác nhận trả hàng:", error);
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// Hàm mới: Lấy lịch sử trạng thái đơn hàng
+const getOrderStatusHistory = asyncHandler(async (req, res, next) => {
+  const orderId = req.params.id;
+
+  try {
+    const statusContext = await OrderStatusContextFactory.create(
+      orderId,
+      req.redisClient
+    );
+    const history = await statusContext.getStatusHistory();
+    const currentStatus = statusContext.getCurrentStatus();
+
+    res.status(200).json({
+      currentStatus,
+      history,
+    });
+  } catch (error) {
+    logger.error("Lỗi khi lấy lịch sử trạng thái:", error);
+    res.status(400).json({ error: error.message });
+  }
+});
+
 export default {
   getAllOrders: getAllOrders,
   getOrderById: getOrderById,
@@ -643,4 +779,10 @@ export default {
   checkoutWithZaloPay: checkoutWithZaloPay,
   callbackZaloPay: callbackZaloPay,
   checkStatusTransactionZaloPay: checkStatusTransactionZaloPay,
+  // Các hàm mới sử dụng State Pattern
+  nextOrderStatus: nextOrderStatus,
+  cancelOrder: cancelOrder,
+  requestReturnOrder: requestReturnOrder,
+  confirmReturnOrder: confirmReturnOrder,
+  getOrderStatusHistory: getOrderStatusHistory,
 };
