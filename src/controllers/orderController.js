@@ -254,6 +254,12 @@ const updateDeliveryInfoById = asyncHandler(async (req, res, next) => {
   }
 
   try {
+    // Cập nhật expectedDeliveryDate trước nếu có
+    if (expectedDeliveryDate) {
+      order.expectedDeliveryDate = expectedDeliveryDate;
+      await order.save();
+    }
+
     // Sử dụng State Pattern để quản lý trạng thái
     const statusContext = await OrderStatusContextFactory.create(
       orderId,
@@ -271,12 +277,6 @@ const updateDeliveryInfoById = asyncHandler(async (req, res, next) => {
 
     // Thực hiện chuyển trạng thái
     await statusContext.transitionTo(status, deliveryAddress);
-
-    // Cập nhật expectedDeliveryDate nếu có
-    if (expectedDeliveryDate) {
-      order.expectedDeliveryDate = expectedDeliveryDate;
-      await order.save();
-    }
 
     logger.info(messages.MSG44);
     const updatedOrder = await Order.findById(orderId);
@@ -746,7 +746,10 @@ const getOrderStatusHistory = asyncHandler(async (req, res, next) => {
   const orderId = req.params.id;
 
   try {
-    const statusContext = await OrderStatusContextFactory.create(orderId);
+    const statusContext = await OrderStatusContextFactory.create(
+      orderId,
+      req.redisClient
+    );
     const history = await statusContext.getStatusHistory();
     const currentStatus = statusContext.getCurrentStatus();
 
